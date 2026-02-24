@@ -94,6 +94,8 @@
 
         /* Admin göstergesi */
         .admin-badge { background-color: gold; color: black; border-radius: 4px; padding: 2px 6px; font-size: 10px; margin-left: 4px; }
+        /* Yükleme göstergesi */
+        .loading { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -242,6 +244,7 @@
         let contextMenu = document.getElementById('server-context-menu');
         let selectedServerForDelete = null;
         let currentTheme = localStorage.getItem('theme') || 'dark';
+        let isUploading = false; // Yükleme durumu
 
         // DOM elementleri
         const usernameModal = document.getElementById('username-modal');
@@ -270,6 +273,7 @@
         const settingsTheme = document.getElementById('settings-theme');
         const serverMenuToggle = document.getElementById('server-menu-toggle');
         const serverMenu = document.getElementById('server-menu');
+        const attachButton = document.getElementById('attach-button');
 
         // Kullanıcı adı kontrolü (benzersizlik)
         async function isUsernameTaken(username) {
@@ -563,16 +567,74 @@
             }
         });
 
+        // Resim yükleme (geliştirilmiş hata yönetimi)
         window.uploadImage = (input) => {
+            if (isUploading) {
+                alert('Zaten bir dosya yükleniyor, lütfen bekleyin.');
+                return;
+            }
             const file = input.files[0];
             if (!file) return;
+
+            // Sadece resim dosyalarına izin ver
+            if (!file.type.startsWith('image/')) {
+                alert('Lütfen bir resim dosyası seçin.');
+                fileInput.value = ''; // input'u temizle
+                return;
+            }
+
+            // Maksimum dosya boyutu 5MB
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Dosya boyutu 5MB\'dan büyük olamaz.');
+                fileInput.value = '';
+                return;
+            }
+
+            isUploading = true;
+            attachButton.classList.add('loading');
+            attachButton.style.opacity = '0.5';
+            const originalTitle = attachButton.title;
+            attachButton.title = 'Yükleniyor...';
+
             const storageRef = storage.ref('images/' + Date.now() + '_' + file.name);
             const task = storageRef.put(file);
-            task.on('state_changed', null, null, () => {
-                task.snapshot.ref.getDownloadURL().then(url => {
-                    sendMessage('', url);
-                });
-            });
+
+            task.on('state_changed',
+                (snapshot) => {
+                    // İlerleme (opsiyonel)
+                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                    console.log('Yükleme %: ' + progress);
+                },
+                (error) => {
+                    // Hata durumu
+                    console.error('Yükleme hatası:', error);
+                    alert('Resim yüklenirken hata oluştu: ' + error.message);
+                    isUploading = false;
+                    attachButton.classList.remove('loading');
+                    attachButton.style.opacity = '';
+                    attachButton.title = originalTitle;
+                    fileInput.value = ''; // input'u temizle
+                },
+                () => {
+                    // Başarılı
+                    task.snapshot.ref.getDownloadURL().then(url => {
+                        sendMessage('', url);
+                        isUploading = false;
+                        attachButton.classList.remove('loading');
+                        attachButton.style.opacity = '';
+                        attachButton.title = originalTitle;
+                        fileInput.value = ''; // input'u temizle
+                    }).catch(err => {
+                        console.error('Download URL alınamadı:', err);
+                        alert('Resim yüklendi ancak URL alınamadı.');
+                        isUploading = false;
+                        attachButton.classList.remove('loading');
+                        attachButton.style.opacity = '';
+                        attachButton.title = originalTitle;
+                        fileInput.value = '';
+                    });
+                }
+            );
         };
 
         window.openServerModal = () => {
