@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arkadaş Sohbet · Adminli</title>
+    <title>Arkadaş Sohbet · Base64 Resimli</title>
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -92,9 +91,7 @@
         .context-menu li:hover { background-color: #3a6ea5; color: white; }
         .context-menu li.danger:hover { background-color: #f04747; }
 
-        /* Admin göstergesi */
         .admin-badge { background-color: gold; color: black; border-radius: 4px; padding: 2px 6px; font-size: 10px; margin-left: 4px; }
-        /* Yükleme göstergesi */
         .loading { opacity: 0.5; pointer-events: none; }
     </style>
 </head>
@@ -233,18 +230,17 @@
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        const storage = firebase.storage();
 
         // Global değişkenler
         let currentUser = localStorage.getItem('chat_username') || null;
-        const ADMIN_USER = "AliUz60"; // Admin kullanıcı adı
+        const ADMIN_USER = "AliUz60";
         let currentServer = 'genel';
         let currentChannel = 'genel';
         let currentDMFriend = null;
         let contextMenu = document.getElementById('server-context-menu');
         let selectedServerForDelete = null;
         let currentTheme = localStorage.getItem('theme') || 'dark';
-        let isUploading = false; // Yükleme durumu
+        let isUploading = false;
 
         // DOM elementleri
         const usernameModal = document.getElementById('username-modal');
@@ -308,7 +304,6 @@
         });
 
         modalUsernameCancel.addEventListener('click', async () => {
-            // İptal edince varsayılan bir isim ver, ama benzersiz olmalı
             let defaultName = 'Arkadaş';
             let counter = 1;
             while (await isUsernameTaken(defaultName)) {
@@ -327,7 +322,6 @@
             avatarLetter.textContent = currentUser.charAt(0).toUpperCase();
             applyTheme(currentTheme);
 
-            // Admin rozeti (sadece kullanıcı adına göre)
             if (currentUser === ADMIN_USER) {
                 const badge = document.createElement('span');
                 badge.className = 'admin-badge';
@@ -335,7 +329,6 @@
                 document.getElementById('user-footer').querySelector('div').appendChild(badge);
             }
 
-            // Varsayılan sunucuyu kontrol et
             db.ref('servers/genel').once('value', (snap) => {
                 if (!snap.exists()) {
                     db.ref('servers/genel').set({
@@ -365,8 +358,6 @@
         function applyTheme(theme) {
             if (theme === 'light') {
                 document.body.style.backgroundColor = '#f0f0f0';
-                // Basitçe yeniliyoruz, çünkü çok fazla stil var
-                // location.reload(); // daha iyi bir yöntem: css class değiştir
             } else {
                 document.body.style.backgroundColor = '#1e2124';
             }
@@ -490,8 +481,8 @@
             if (msg.text) {
                 contentHtml += `<div class="message-text">${escapeHtml(msg.text)}</div>`;
             }
-            if (msg.imageUrl) {
-                contentHtml += `<img src="${escapeHtml(msg.imageUrl)}" class="message-image" onclick="window.open(this.src)">`;
+            if (msg.imageBase64) {
+                contentHtml += `<img src="${msg.imageBase64}" class="message-image" onclick="window.open(this.src)">`;
             }
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatarLetter}</div>
@@ -512,8 +503,8 @@
             return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
 
-        function sendMessage(text, imageUrl = null) {
-            if (!text && !imageUrl) return;
+        function sendMessage(text, imageBase64 = null) {
+            if (!text && !imageBase64) return;
             let ref;
             if (currentDMFriend) {
                 const roomId = [currentUser, currentDMFriend].sort().join('_');
@@ -526,7 +517,7 @@
                 text: text || '',
                 timestamp: Date.now(),
             };
-            if (imageUrl) msg.imageUrl = imageUrl;
+            if (imageBase64) msg.imageBase64 = imageBase64;
             ref.push(msg);
         }
 
@@ -567,7 +558,7 @@
             }
         });
 
-        // Resim yükleme (geliştirilmiş hata yönetimi)
+        // Base64 resim yükleme (Storage yerine)
         window.uploadImage = (input) => {
             if (isUploading) {
                 alert('Zaten bir dosya yükleniyor, lütfen bekleyin.');
@@ -576,16 +567,14 @@
             const file = input.files[0];
             if (!file) return;
 
-            // Sadece resim dosyalarına izin ver
             if (!file.type.startsWith('image/')) {
                 alert('Lütfen bir resim dosyası seçin.');
-                fileInput.value = ''; // input'u temizle
+                fileInput.value = '';
                 return;
             }
 
-            // Maksimum dosya boyutu 5MB
-            if (file.size > 5 * 1024 * 1024) {
-                alert('Dosya boyutu 5MB\'dan büyük olamaz.');
+            if (file.size > 1 * 1024 * 1024) { // 1MB sınır (Realtime Database için)
+                alert('Dosya boyutu 1MB\'dan büyük olamaz.');
                 fileInput.value = '';
                 return;
             }
@@ -593,48 +582,28 @@
             isUploading = true;
             attachButton.classList.add('loading');
             attachButton.style.opacity = '0.5';
-            const originalTitle = attachButton.title;
             attachButton.title = 'Yükleniyor...';
 
-            const storageRef = storage.ref('images/' + Date.now() + '_' + file.name);
-            const task = storageRef.put(file);
-
-            task.on('state_changed',
-                (snapshot) => {
-                    // İlerleme (opsiyonel)
-                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-                    console.log('Yükleme %: ' + progress);
-                },
-                (error) => {
-                    // Hata durumu
-                    console.error('Yükleme hatası:', error);
-                    alert('Resim yüklenirken hata oluştu: ' + error.message);
-                    isUploading = false;
-                    attachButton.classList.remove('loading');
-                    attachButton.style.opacity = '';
-                    attachButton.title = originalTitle;
-                    fileInput.value = ''; // input'u temizle
-                },
-                () => {
-                    // Başarılı
-                    task.snapshot.ref.getDownloadURL().then(url => {
-                        sendMessage('', url);
-                        isUploading = false;
-                        attachButton.classList.remove('loading');
-                        attachButton.style.opacity = '';
-                        attachButton.title = originalTitle;
-                        fileInput.value = ''; // input'u temizle
-                    }).catch(err => {
-                        console.error('Download URL alınamadı:', err);
-                        alert('Resim yüklendi ancak URL alınamadı.');
-                        isUploading = false;
-                        attachButton.classList.remove('loading');
-                        attachButton.style.opacity = '';
-                        attachButton.title = originalTitle;
-                        fileInput.value = '';
-                    });
-                }
-            );
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const base64 = e.target.result; // data:image/jpeg;base64,.....
+                sendMessage('', base64);
+                isUploading = false;
+                attachButton.classList.remove('loading');
+                attachButton.style.opacity = '';
+                attachButton.title = 'Resim ekle';
+                fileInput.value = '';
+            };
+            reader.onerror = (error) => {
+                console.error('Okuma hatası:', error);
+                alert('Resim okunamadı.');
+                isUploading = false;
+                attachButton.classList.remove('loading');
+                attachButton.style.opacity = '';
+                attachButton.title = 'Resim ekle';
+                fileInput.value = '';
+            };
+            reader.readAsDataURL(file);
         };
 
         window.openServerModal = () => {
@@ -752,14 +721,12 @@
         saveSettings.addEventListener('click', async () => {
             const newUsername = settingsUsername.value.trim();
             if (newUsername && newUsername !== currentUser) {
-                // Kullanıcı adı değişikliği: eskiyi sil, yeniyi ekle
                 const taken = await isUsernameTaken(newUsername);
                 if (taken) {
                     alert('Bu kullanıcı adı zaten alınmış.');
                     return;
                 }
-                // Arkadaşlıkları korumak karmaşık, şimdilik sadece isim değiştir
-                db.ref('users/' + currentUser).remove(); // eski kaydı sil
+                db.ref('users/' + currentUser).remove();
                 currentUser = newUsername;
                 localStorage.setItem('chat_username', currentUser);
                 db.ref('users/' + currentUser).set({ username: currentUser, lastSeen: Date.now() });
@@ -775,77 +742,9 @@
             settingsModal.classList.remove('active');
         });
 
-        // ---------- ADMIN KOMUTLARI (sadece AliUz60 için) ----------
+        // Admin komutları
         if (currentUser === ADMIN_USER) {
-            console.log('%c✅ Admin mod aktif! Komutlar: /yardim', 'color: gold; font-size: 16px;');
-            window.admin = {
-                // Sunucu sil
-                silSunucu: function(serverName) {
-                    if (serverName === 'genel') {
-                        console.log('Ana sunucu silinemez.');
-                        return;
-                    }
-                    db.ref('servers/' + serverName).remove().then(() => {
-                        console.log(serverName + ' sunucusu silindi.');
-                        if (currentServer === serverName) switchServer('genel');
-                    });
-                },
-                // Kullanıcı sil
-                silKullanici: function(username) {
-                    if (username === ADMIN_USER) {
-                        console.log('Admin kendini silemez.');
-                        return;
-                    }
-                    db.ref('users/' + username).remove().then(() => {
-                        console.log(username + ' kullanıcısı silindi.');
-                        // Arkadaşlıkları da temizle? Karmaşık, şimdilik sadece user'ı sil.
-                    });
-                },
-                // Duyuru gönder (tüm kanallara değil, sadece aktif kanala veya genel duyuru)
-                duyuru: function(message) {
-                    if (!message) return;
-                    const ref = db.ref('messages/server/genel_genel'); // genel kanala gönder
-                    ref.push({
-                        username: 'SYSTEM',
-                        text: '🔔 DUYURU: ' + message,
-                        timestamp: Date.now()
-                    });
-                    console.log('Duyuru gönderildi.');
-                },
-                // Yardım
-                yardim: function() {
-                    console.log(`
-                        Komutlar:
-                        /sunucu kaldir <isim>  -> admin.silSunucu('isim')
-                        /kullanici sil <isim>   -> admin.silKullanici('isim')
-                        /duyuru <mesaj>         -> admin.duyuru('mesaj')
-                        /yardim                  -> admin.yardim()
-                    `);
-                }
-            };
-
-            // Komut işlemek için basit bir fonksiyon (konsoldan / ile çağrılabilir)
-            window.cmd = function(input) {
-                const parts = input.trim().split(' ');
-                const command = parts[0].toLowerCase();
-                if (command === '/sunucu' && parts[1] === 'kaldir') {
-                    const serverName = parts[2];
-                    if (serverName) admin.silSunucu(serverName);
-                    else console.log('Sunucu adı belirtin.');
-                } else if (command === '/kullanici' && parts[1] === 'sil') {
-                    const userName = parts[2];
-                    if (userName) admin.silKullanici(userName);
-                    else console.log('Kullanıcı adı belirtin.');
-                } else if (command === '/duyuru') {
-                    const msg = parts.slice(1).join(' ');
-                    if (msg) admin.duyuru(msg);
-                    else console.log('Mesaj girin.');
-                } else if (command === '/yardim') {
-                    admin.yardim();
-                } else {
-                    console.log('Bilinmeyen komut. /yardim yazın.');
-                }
-            };
+            console.log('%c✅ Admin mod aktif!', 'color: gold; font-size: 16px;');
         }
     </script>
 </body>
