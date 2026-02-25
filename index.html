@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Arkadaş Sohbet · Base64 Resimli</title>
+    <title>Arkadaş Sohbet · Sesli/Görüntülü Arama</title>
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
+        /* Mevcut stiller aynen korundu, sadece arama ile ilgili yeniler eklendi */
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Roboto, system-ui, sans-serif; }
         body { height: 100vh; display: flex; background-color: #1e2124; overflow: hidden; }
         .servers { width: 72px; background-color: #1a1c1f; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 8px; overflow-y: auto; }
@@ -37,7 +39,7 @@
         .channel i { font-size: 20px; width: 22px; text-align: center; }
         .user-footer { padding: 16px; border-top: 1px solid #1e2124; display: flex; align-items: center; gap: 8px; margin-top: auto; }
 
-        .chat-area { flex: 1; background-color: #31363b; display: flex; flex-direction: column; }
+        .chat-area { flex: 1; background-color: #31363b; display: flex; flex-direction: column; position: relative; }
         .chat-header { padding: 12px 20px; background-color: #2f3338; border-bottom: 1px solid #1e2124; display: flex; align-items: center; gap: 10px; color: #ffffff; font-weight: 600; }
         .messages-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
         .message { display: flex; gap: 16px; align-items: flex-start; }
@@ -74,6 +76,30 @@
         .delete-friend { color: #b9bbbe; visibility: hidden; }
         .user-item:hover .delete-friend { visibility: visible; }
         .delete-friend:hover { color: #f04747; }
+        .call-button { color: #3ba55d; margin-left: 4px; visibility: hidden; }
+        .user-item:hover .call-button { visibility: visible; }
+        .call-button:hover { color: #2d7a4b; }
+
+        /* Arama stilleri */
+        .call-notification { position: fixed; top: 20px; right: 20px; background: #2f3338; border-left: 4px solid #3a6ea5; border-radius: 8px; padding: 16px; box-shadow: 0 0 20px black; z-index: 2000; display: none; }
+        .call-notification.active { display: block; }
+        .call-buttons { display: flex; gap: 10px; margin-top: 10px; }
+        .call-buttons button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .accept-btn { background: #3ba55d; color: white; }
+        .reject-btn { background: #f04747; color: white; }
+
+        .call-window { position: fixed; bottom: 20px; right: 20px; width: 320px; background: #1e2124; border-radius: 8px; box-shadow: 0 0 20px black; z-index: 2000; display: none; flex-direction: column; overflow: hidden; }
+        .call-window.active { display: flex; }
+        .call-header { background: #2f3338; padding: 10px; display: flex; justify-content: space-between; align-items: center; color: white; }
+        .call-header span { font-weight: 600; }
+        .call-header i { cursor: pointer; }
+        .videos { display: flex; flex-direction: column; gap: 10px; padding: 10px; }
+        .remote-video { width: 100%; height: 180px; background: black; border-radius: 4px; }
+        .local-video { width: 80px; height: 60px; background: black; border-radius: 4px; position: absolute; bottom: 70px; right: 10px; border: 2px solid #3a6ea5; }
+        .call-controls { display: flex; justify-content: center; gap: 20px; padding: 10px; background: #2f3338; }
+        .call-controls i { font-size: 24px; color: #b9bbbe; cursor: pointer; }
+        .call-controls i:hover { color: white; }
+        .call-controls .end-call { color: #f04747; }
 
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); align-items: center; justify-content: center; z-index: 1000; }
         .modal.active { display: flex; }
@@ -216,6 +242,32 @@
         </ul>
     </div>
 
+    <!-- ARAMA BİLDİRİMİ -->
+    <div class="call-notification" id="call-notification">
+        <div id="caller-info">Gelen arama...</div>
+        <div class="call-buttons">
+            <button class="accept-btn" id="accept-call">Kabul et</button>
+            <button class="reject-btn" id="reject-call">Reddet</button>
+        </div>
+    </div>
+
+    <!-- GÖRÜNTÜLÜ ARAMA PENCERESİ -->
+    <div class="call-window" id="call-window">
+        <div class="call-header">
+            <span id="call-partner">Görüntülü Arama</span>
+            <i class="fas fa-times" id="close-call-window"></i>
+        </div>
+        <div class="videos">
+            <video id="remote-video" class="remote-video" autoplay playsinline></video>
+            <video id="local-video" class="local-video" autoplay playsinline muted></video>
+        </div>
+        <div class="call-controls">
+            <i class="fas fa-microphone" id="mute-audio"></i>
+            <i class="fas fa-video" id="mute-video"></i>
+            <i class="fas fa-phone-slash end-call" id="end-call"></i>
+        </div>
+    </div>
+
     <script>
         // Firebase config
         const firebaseConfig = {
@@ -230,6 +282,7 @@
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
+        const storage = firebase.storage();
 
         // Global değişkenler
         let currentUser = localStorage.getItem('chat_username') || null;
@@ -241,6 +294,15 @@
         let selectedServerForDelete = null;
         let currentTheme = localStorage.getItem('theme') || 'dark';
         let isUploading = false;
+
+        // WebRTC değişkenleri
+        let peerConnection;
+        let localStream;
+        let remoteStream;
+        let callStatus = 'idle'; // idle, calling, ringing, connected
+        let currentCallId = null;
+        let currentCallTarget = null;
+        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
         // DOM elementleri
         const usernameModal = document.getElementById('username-modal');
@@ -270,6 +332,20 @@
         const serverMenuToggle = document.getElementById('server-menu-toggle');
         const serverMenu = document.getElementById('server-menu');
         const attachButton = document.getElementById('attach-button');
+
+        // Arama elementleri
+        const callNotification = document.getElementById('call-notification');
+        const callerInfo = document.getElementById('caller-info');
+        const acceptCallBtn = document.getElementById('accept-call');
+        const rejectCallBtn = document.getElementById('reject-call');
+        const callWindow = document.getElementById('call-window');
+        const callPartnerSpan = document.getElementById('call-partner');
+        const closeCallWindow = document.getElementById('close-call-window');
+        const localVideo = document.getElementById('local-video');
+        const remoteVideo = document.getElementById('remote-video');
+        const muteAudioBtn = document.getElementById('mute-audio');
+        const muteVideoBtn = document.getElementById('mute-video');
+        const endCallBtn = document.getElementById('end-call');
 
         // Kullanıcı adı kontrolü (benzersizlik)
         async function isUsernameTaken(username) {
@@ -353,6 +429,40 @@
                 serverMenu.classList.remove('active');
             });
             document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+            // Arama dinleyicisi (gelen çağrılar)
+            const callsRef = db.ref('calls');
+            callsRef.on('child_added', (snap) => {
+                const call = snap.val();
+                if (call.callee === currentUser && call.status === 'ringing' && currentCallId === null) {
+                    // Gelen arama
+                    currentCallId = snap.key;
+                    currentCallTarget = call.caller;
+                    callerInfo.textContent = `${call.caller} sizi arıyor...`;
+                    callNotification.classList.add('active');
+                }
+            });
+
+            callsRef.on('child_removed', (snap) => {
+                if (snap.key === currentCallId) {
+                    // Arama sonlandı
+                    endCall();
+                }
+            });
+
+            callsRef.on('child_changed', (snap) => {
+                const call = snap.val();
+                if (snap.key === currentCallId) {
+                    if (call.status === 'connected') {
+                        // Bağlantı kuruldu
+                        callNotification.classList.remove('active');
+                        callPartnerSpan.textContent = currentCallTarget;
+                        callWindow.classList.add('active');
+                    } else if (call.status === 'ended') {
+                        endCall();
+                    }
+                }
+            });
         }
 
         function applyTheme(theme) {
@@ -384,6 +494,7 @@
                         <div class="user-status"></div>
                         <span class="user-name">${friend}</span>
                     </div>
+                    <i class="fas fa-video call-button" onclick="startCall('${friend}')" title="Görüntülü ara"></i>
                     <i class="fas fa-trash delete-friend" onclick="deleteFriend('${friend}')"></i>
                 </div>`;
                 dmHtml += `<div class="user-item" onclick="openDM('${friend}')">
@@ -481,8 +592,8 @@
             if (msg.text) {
                 contentHtml += `<div class="message-text">${escapeHtml(msg.text)}</div>`;
             }
-            if (msg.imageBase64) {
-                contentHtml += `<img src="${msg.imageBase64}" class="message-image" onclick="window.open(this.src)">`;
+            if (msg.imageUrl) {
+                contentHtml += `<img src="${escapeHtml(msg.imageUrl)}" class="message-image" onclick="window.open(this.src)">`;
             }
             messageDiv.innerHTML = `
                 <div class="message-avatar">${avatarLetter}</div>
@@ -503,8 +614,8 @@
             return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
 
-        function sendMessage(text, imageBase64 = null) {
-            if (!text && !imageBase64) return;
+        function sendMessage(text, imageUrl = null) {
+            if (!text && !imageUrl) return;
             let ref;
             if (currentDMFriend) {
                 const roomId = [currentUser, currentDMFriend].sort().join('_');
@@ -517,7 +628,7 @@
                 text: text || '',
                 timestamp: Date.now(),
             };
-            if (imageBase64) msg.imageBase64 = imageBase64;
+            if (imageUrl) msg.imageUrl = imageUrl;
             ref.push(msg);
         }
 
@@ -558,7 +669,6 @@
             }
         });
 
-        // Base64 resim yükleme (Storage yerine)
         window.uploadImage = (input) => {
             if (isUploading) {
                 alert('Zaten bir dosya yükleniyor, lütfen bekleyin.');
@@ -573,8 +683,8 @@
                 return;
             }
 
-            if (file.size > 1 * 1024 * 1024) { // 1MB sınır (Realtime Database için)
-                alert('Dosya boyutu 1MB\'dan büyük olamaz.');
+            if (file.size > 5 * 1024 * 1024) {
+                alert('Dosya boyutu 5MB\'dan büyük olamaz.');
                 fileInput.value = '';
                 return;
             }
@@ -582,28 +692,42 @@
             isUploading = true;
             attachButton.classList.add('loading');
             attachButton.style.opacity = '0.5';
+            const originalTitle = attachButton.title;
             attachButton.title = 'Yükleniyor...';
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const base64 = e.target.result; // data:image/jpeg;base64,.....
-                sendMessage('', base64);
-                isUploading = false;
-                attachButton.classList.remove('loading');
-                attachButton.style.opacity = '';
-                attachButton.title = 'Resim ekle';
-                fileInput.value = '';
-            };
-            reader.onerror = (error) => {
-                console.error('Okuma hatası:', error);
-                alert('Resim okunamadı.');
-                isUploading = false;
-                attachButton.classList.remove('loading');
-                attachButton.style.opacity = '';
-                attachButton.title = 'Resim ekle';
-                fileInput.value = '';
-            };
-            reader.readAsDataURL(file);
+            const storageRef = storage.ref('images/' + Date.now() + '_' + file.name);
+            const task = storageRef.put(file);
+
+            task.on('state_changed',
+                (snapshot) => {},
+                (error) => {
+                    console.error('Yükleme hatası:', error);
+                    alert('Resim yüklenirken hata oluştu: ' + error.message);
+                    isUploading = false;
+                    attachButton.classList.remove('loading');
+                    attachButton.style.opacity = '';
+                    attachButton.title = originalTitle;
+                    fileInput.value = '';
+                },
+                () => {
+                    task.snapshot.ref.getDownloadURL().then(url => {
+                        sendMessage('', url);
+                        isUploading = false;
+                        attachButton.classList.remove('loading');
+                        attachButton.style.opacity = '';
+                        attachButton.title = originalTitle;
+                        fileInput.value = '';
+                    }).catch(err => {
+                        console.error('Download URL alınamadı:', err);
+                        alert('Resim yüklendi ancak URL alınamadı.');
+                        isUploading = false;
+                        attachButton.classList.remove('loading');
+                        attachButton.style.opacity = '';
+                        attachButton.title = originalTitle;
+                        fileInput.value = '';
+                    });
+                }
+            );
         };
 
         window.openServerModal = () => {
@@ -742,9 +866,205 @@
             settingsModal.classList.remove('active');
         });
 
-        // Admin komutları
+        // ---------- ARAMA FONKSİYONLARI ----------
+        async function startCall(targetUsername) {
+            if (callStatus !== 'idle') {
+                alert('Zaten bir arama var.');
+                return;
+            }
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                localVideo.play();
+
+                peerConnection = new RTCPeerConnection(configuration);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = (event) => {
+                    remoteVideo.srcObject = event.streams[0];
+                    remoteVideo.play();
+                };
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        db.ref('calls/' + currentCallId + '/candidates/' + Date.now()).set(event.candidate.toJSON());
+                    }
+                };
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                const callRef = db.ref('calls').push();
+                currentCallId = callRef.key;
+                currentCallTarget = targetUsername;
+                await callRef.set({
+                    caller: currentUser,
+                    callee: targetUsername,
+                    offer: offer.toJSON(),
+                    status: 'ringing',
+                    timestamp: Date.now()
+                });
+
+                callStatus = 'calling';
+                callPartnerSpan.textContent = targetUsername;
+                callWindow.classList.add('active');
+
+            } catch (err) {
+                console.error('Arama başlatılamadı:', err);
+                alert('Kamera veya mikrofon erişimi yok.');
+            }
+        }
+
+        acceptCallBtn.addEventListener('click', async () => {
+            if (!currentCallId) return;
+            callNotification.classList.remove('active');
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localVideo.srcObject = localStream;
+                localVideo.play();
+
+                peerConnection = new RTCPeerConnection(configuration);
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+                peerConnection.ontrack = (event) => {
+                    remoteVideo.srcObject = event.streams[0];
+                    remoteVideo.play();
+                };
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        db.ref('calls/' + currentCallId + '/candidates/' + Date.now()).set(event.candidate.toJSON());
+                    }
+                };
+
+                const callSnap = await db.ref('calls/' + currentCallId).once('value');
+                const call = callSnap.val();
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(call.offer));
+
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                await db.ref('calls/' + currentCallId).update({
+                    answer: answer.toJSON(),
+                    status: 'connected'
+                });
+
+                callStatus = 'connected';
+                callPartnerSpan.textContent = currentCallTarget;
+                callWindow.classList.add('active');
+
+                // Mevcut adayları işle
+                if (call.candidates) {
+                    Object.values(call.candidates).forEach(candidate => {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    });
+                }
+
+            } catch (err) {
+                console.error('Arama kabul edilemedi:', err);
+            }
+        });
+
+        rejectCallBtn.addEventListener('click', () => {
+            if (currentCallId) {
+                db.ref('calls/' + currentCallId).update({ status: 'ended' });
+                db.ref('calls/' + currentCallId).remove(); // hemen sil
+                endCall();
+            }
+            callNotification.classList.remove('active');
+        });
+
+        function endCall() {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            localVideo.srcObject = null;
+            remoteVideo.srcObject = null;
+            callWindow.classList.remove('active');
+            callNotification.classList.remove('active');
+            callStatus = 'idle';
+            currentCallId = null;
+            currentCallTarget = null;
+        }
+
+        closeCallWindow.addEventListener('click', endCall);
+        endCallBtn.addEventListener('click', endCall);
+
+        muteAudioBtn.addEventListener('click', () => {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioTrack.enabled = !audioTrack.enabled;
+                    muteAudioBtn.style.color = audioTrack.enabled ? '#b9bbbe' : '#f04747';
+                }
+            }
+        });
+
+        muteVideoBtn.addEventListener('click', () => {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    videoTrack.enabled = !videoTrack.enabled;
+                    muteVideoBtn.style.color = videoTrack.enabled ? '#b9bbbe' : '#f04747';
+                }
+            }
+        });
+
+        // Adayları dinle (karşı taraftan gelen)
+        db.ref('calls').on('child_changed', (snap) => {
+            const call = snap.val();
+            if (snap.key === currentCallId && call.candidates) {
+                Object.values(call.candidates).forEach(candidate => {
+                    if (peerConnection && peerConnection.remoteDescription) {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    }
+                });
+            }
+        });
+
+        // ---------- ADMIN KOMUTLARI ----------
         if (currentUser === ADMIN_USER) {
-            console.log('%c✅ Admin mod aktif!', 'color: gold; font-size: 16px;');
+            console.log('%c✅ Admin mod aktif! Komutlar: /yardim', 'color: gold; font-size: 16px;');
+            window.admin = {
+                silSunucu: (serverName) => {
+                    if (serverName === 'genel') { console.log('Ana sunucu silinemez.'); return; }
+                    db.ref('servers/' + serverName).remove().then(() => console.log(serverName + ' silindi.'));
+                },
+                silKullanici: (username) => {
+                    if (username === ADMIN_USER) { console.log('Admin silinemez.'); return; }
+                    db.ref('users/' + username).remove().then(() => console.log(username + ' silindi.'));
+                },
+                duyuru: (message) => {
+                    if (!message) return;
+                    db.ref('messages/server/genel_genel').push({
+                        username: 'SYSTEM',
+                        text: '🔔 DUYURU: ' + message,
+                        timestamp: Date.now()
+                    });
+                },
+                yardim: () => {
+                    console.log(`
+                        /sunucu kaldir <isim>
+                        /kullanici sil <isim>
+                        /duyuru <mesaj>
+                        /yardim
+                    `);
+                }
+            };
+            window.cmd = (input) => {
+                const parts = input.trim().split(' ');
+                const cmd = parts[0].toLowerCase();
+                if (cmd === '/sunucu' && parts[1] === 'kaldir') admin.silSunucu(parts[2]);
+                else if (cmd === '/kullanici' && parts[1] === 'sil') admin.silKullanici(parts[2]);
+                else if (cmd === '/duyuru') admin.duyuru(parts.slice(1).join(' '));
+                else if (cmd === '/yardim') admin.yardim();
+                else console.log('Bilinmeyen komut');
+            };
         }
     </script>
 </body>
